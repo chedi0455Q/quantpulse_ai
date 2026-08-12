@@ -2,12 +2,18 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Any
 import pandas as pd
+import ccxt.async_support as ccxt
+import feedparser
+import aiohttp
+
 try:
     import MetaTrader5 as mt5
     MT5_AVAILABLE = True
 except (ImportError, ModuleNotFoundError, Exception):
     mt5 = None
     MT5_AVAILABLE = False
+
+from config.settings import TARGET_ASSETS, settings
 
 logger = logging.getLogger(__name__)
 
