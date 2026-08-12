@@ -226,9 +226,7 @@ class QuantPulseBot:
             await query.message.delete()
 
     async def _get_or_run_eval(self, asset_key: str) -> Optional[Dict[str, Any]]:
-        """Fetch cached evaluation or execute fresh pipeline."""
-        if asset_key in self.cached_evaluations:
-            return self.cached_evaluations[asset_key]
+        """Always execute fresh pipeline to fetch live real-time market data."""
         return await self.run_single_asset_analysis(asset_key)
 
     async def _reply_global_diagnostic(self, query):
