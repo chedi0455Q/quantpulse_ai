@@ -35,6 +35,10 @@ async def start_auto_scanner():
                 scanner_assets = [k for k in TARGET_ASSETS.keys() if k != "SPACEX"]
                 
                 for asset_key in scanner_assets:
+                    if not bot_instance.decision_engine.is_market_open(asset_key):
+                        logger.info(f"ℹ️ Marché {asset_key} fermé actuellement (Hors heures officielles de bourse). Scan automatique ignoré.")
+                        continue
+
                     eval_data = await bot_instance.run_single_asset_analysis(asset_key)
                     await asyncio.sleep(1.5)  # Pause anti rate-limit Yahoo Finance
                     if eval_data:
