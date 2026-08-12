@@ -69,7 +69,7 @@ class DataFetcher:
         now = time.time()
         if cache_key in self._ohlcv_cache:
             cached_time, cached_df = self._ohlcv_cache[cache_key]
-            if now - cached_time < 180:  # 3 minutes
+            if now - cached_time < 15:  # 15 seconds TTL for live fresh prices
                 return cached_df.copy()
 
         # A. Crypto (BTC) via Binance CCXT
