@@ -142,3 +142,41 @@ class DecisionEngine:
             lot = risk_amount / sl_distance
 
         return round(max(0.01, min(5.0, lot)), 2)
+
+    @staticmethod
+    def is_market_open(asset_key: str) -> bool:
+        """
+        Market Hours Filter:
+        - BTC: 24/7 (Always Open)
+        - TSLA: Mon-Fri 13:30 to 20:00 UTC (15:30 to 22:00 Paris/CET)
+        - XAU / XAG: Mon-Fri (Closed Sat & Sun until Sun 22:00 UTC)
+        """
+        from datetime import datetime, timezone
+        now_utc = datetime.now(timezone.utc)
+        weekday = now_utc.weekday()
+        hour = now_utc.hour
+        minute = now_utc.minute
+
+        if asset_key == "BTC":
+            return True
+
+        if weekday == 5:  # Saturday
+            return False
+
+        if weekday == 6:  # Sunday
+            if asset_key in ["XAU", "XAG"] and hour >= 22:
+                return True
+            return False
+
+        if asset_key == "TSLA":
+            time_minutes = hour * 60 + minute
+            market_open = 13 * 60 + 30   # 13:30 UTC (15:30 Paris)
+            market_close = 20 * 60       # 20:00 UTC (22:00 Paris)
+            return market_open <= time_minutes < market_close
+
+        if asset_key in ["XAU", "XAG"]:
+            if weekday == 4 and hour >= 22:
+                return False
+            return True
+
+        return True
