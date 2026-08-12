@@ -126,10 +126,10 @@ class DataFetcher:
             except Exception as e:
                 logger.warning(f"Erreur lors de la tentative MT5 pour {asset_key}: {e}")
 
-        # 2. Secours Automatique multi-tickers via yfinance
+        # 2. Secours Automatique Spot USD via yfinance (Prix Spot OANDA/TradingView exacts)
         yf_ticker_map = {
-            "XAU": ["GC=F", "GLD", "IAU", "XAUUSD=X"],
-            "XAG": ["SI=F", "SLV", "XAGUSD=X"],
+            "XAU": ["PAXG-USD", "GC=F"],
+            "XAG": ["KAG-USD", "SI=F"],
             "BTC": ["BTC-USD", "BTC-USDT"],
             "TSLA": ["TSLA"]
         }
