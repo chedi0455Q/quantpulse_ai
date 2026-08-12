@@ -2,12 +2,12 @@ import asyncio
 import logging
 from typing import Dict, List, Optional, Any
 import pandas as pd
-import MetaTrader5 as mt5
-import ccxt.async_support as ccxt
-import feedparser
-import aiohttp
-
-from config.settings import TARGET_ASSETS, settings
+try:
+    import MetaTrader5 as mt5
+    MT5_AVAILABLE = True
+except (ImportError, ModuleNotFoundError, Exception):
+    mt5 = None
+    MT5_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -15,11 +15,17 @@ class DataFetcher:
     """Asynchronous data fetcher using MetaTrader 5 for Spot Assets & CCXT for Crypto."""
     
     def __init__(self):
-        # 1. Initialize MetaTrader 5
-        if not mt5.initialize():
-            logger.error(f"Échec de l'initialisation de MetaTrader5, code d'erreur: {mt5.last_error()}")
+        # 1. Initialize MetaTrader 5 if available (Windows OS)
+        if MT5_AVAILABLE and mt5:
+            try:
+                if not mt5.initialize():
+                    logger.error(f"Échec de l'initialisation de MetaTrader5, code d'erreur: {mt5.last_error()}")
+                else:
+                    logger.info("MetaTrader 5 connecté avec succès!")
+            except Exception as e:
+                logger.warning(f"Erreur d'initialisation MT5: {e}")
         else:
-            logger.info("MetaTrader 5 connecté avec succès!")
+            logger.info("MetaTrader5 non disponible sur cet environnement (Linux/Cloud). Activation du secours automatique yfinance & CCXT.")
 
         # 2. Initialize Binance CCXT
         self.binance = ccxt.binance({
@@ -31,14 +37,18 @@ class DataFetcher:
         """Close external clients and MetaTrader 5 connection."""
         try:
             await self.binance.close()
-            mt5.shutdown()
+            if MT5_AVAILABLE and mt5:
+                try:
+                    mt5.shutdown()
+                except Exception:
+                    pass
             logger.info("Connexions MT5 et CCXT fermées.")
         except Exception as e:
             logger.warning(f"Erreur lors de la fermeture des clients: {e}")
 
     async def fetch_ohlcv(self, asset_key: str, period: str = "30d", interval: str = "1h") -> Optional[pd.DataFrame]:
         """
-        Fetch OHLCV dataframe from MetaTrader 5 or Binance.
+        Fetch OHLCV dataframe from MetaTrader 5, CCXT, or Yahoo Finance.
         """
         asset = TARGET_ASSETS.get(asset_key)
         if not asset:
@@ -57,9 +67,9 @@ class DataFetcher:
                     df.set_index('timestamp', inplace=True)
                     return df
             except Exception as e:
-                logger.warning(f"CCXT a échoué pour {asset_key}, tentative via MT5: {e}")
+                logger.warning(f"CCXT a échoué pour {asset_key}, tentative alternative: {e}")
 
-        # B. Commodities & Stocks (XAU, XAG, TSLA) via MetaTrader 5 + yfinance Fallback
+        # B. Commodities & Stocks (XAU, XAG, TSLA) via MetaTrader 5 (si disponible) + yfinance Fallback
         mt5_symbol_aliases = {
             "XAU": ["XAUUSD", "GOLD", "XAUUSD.a", "XAUUSD.m", "XAUUSD.ecn", "XAUUSD_i", "XAUUSD.r"],
             "XAG": ["XAGUSD", "SILVER", "XAGUSD.a", "XAGUSD.m"],
@@ -69,34 +79,33 @@ class DataFetcher:
         
         possible_symbols = mt5_symbol_aliases.get(asset_key, [asset_key])
 
-        # Mapping Timeframes MT5
-        tf_map = {
-            "15m": mt5.TIMEFRAME_M15,
-            "1h": mt5.TIMEFRAME_H1,
-            "4h": mt5.TIMEFRAME_H4,
-            "1d": mt5.TIMEFRAME_D1
-        }
-        timeframe = tf_map.get(interval, mt5.TIMEFRAME_H1)
-
-        # 1. Try MT5 with Symbol Aliases
-        try:
-            loop = asyncio.get_event_loop()
-            for sym in possible_symbols:
-                if mt5.symbol_select(sym, True):
-                    rates = await loop.run_in_executor(
-                        None, 
-                        lambda s=sym: mt5.copy_rates_from_pos(s, timeframe, 0, 150)
-                    )
-                    if rates is not None and len(rates) > 0:
-                        df = pd.DataFrame(rates)
-                        df['timestamp'] = pd.to_datetime(df['time'], unit='s')
-                        df.set_index('timestamp', inplace=True)
-                        df = df.rename(columns={'tick_volume': 'volume'})
-                        df = df[['open', 'high', 'low', 'close', 'volume']]
-                        logger.info(f"✅ Données récupérées avec succès sur MT5 pour {asset_key} (Symbole: {sym})")
-                        return df
-        except Exception as e:
-            logger.warning(f"Erreur lors de la tentative MT5 pour {asset_key}: {e}")
+        # 1. Try MT5 with Symbol Aliases if MT5 is available
+        if MT5_AVAILABLE and mt5:
+            try:
+                tf_map = {
+                    "15m": mt5.TIMEFRAME_M15,
+                    "1h": mt5.TIMEFRAME_H1,
+                    "4h": mt5.TIMEFRAME_H4,
+                    "1d": mt5.TIMEFRAME_D1
+                }
+                timeframe = tf_map.get(interval, mt5.TIMEFRAME_H1)
+                loop = asyncio.get_event_loop()
+                for sym in possible_symbols:
+                    if mt5.symbol_select(sym, True):
+                        rates = await loop.run_in_executor(
+                            None, 
+                            lambda s=sym: mt5.copy_rates_from_pos(s, timeframe, 0, 150)
+                        )
+                        if rates is not None and len(rates) > 0:
+                            df = pd.DataFrame(rates)
+                            df['timestamp'] = pd.to_datetime(df['time'], unit='s')
+                            df.set_index('timestamp', inplace=True)
+                            df = df.rename(columns={'tick_volume': 'volume'})
+                            df = df[['open', 'high', 'low', 'close', 'volume']]
+                            logger.info(f"✅ Données récupérées avec succès sur MT5 pour {asset_key} (Symbole: {sym})")
+                            return df
+            except Exception as e:
+                logger.warning(f"Erreur lors de la tentative MT5 pour {asset_key}: {e}")
 
         # 2. Secours Automatique via yfinance si MT5 ne renvoie rien pour XAU / Or
         yf_ticker_map = {
