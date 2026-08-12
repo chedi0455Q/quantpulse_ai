@@ -8,6 +8,12 @@ import feedparser
 import aiohttp
 
 try:
+    from tradingview_ta import TA_Handler, Interval
+    TV_AVAILABLE = True
+except (ImportError, ModuleNotFoundError, Exception):
+    TV_AVAILABLE = False
+
+try:
     import MetaTrader5 as mt5
     MT5_AVAILABLE = True
 except (ImportError, ModuleNotFoundError, Exception):
@@ -19,7 +25,7 @@ from config.settings import TARGET_ASSETS, settings
 logger = logging.getLogger(__name__)
 
 class DataFetcher:
-    """Asynchronous data fetcher using MetaTrader 5 for Spot Assets, CCXT & yfinance with 3-min cache."""
+    """Asynchronous data fetcher connected directly to TradingView, MetaTrader 5, CCXT & yfinance."""
     
     def __init__(self):
         self._ohlcv_cache: Dict[str, Any] = {}
@@ -28,13 +34,11 @@ class DataFetcher:
         if MT5_AVAILABLE and mt5:
             try:
                 if not mt5.initialize():
-                    logger.error(f"Échec de l'initialisation de MetaTrader5, code d'erreur: {mt5.last_error()}")
+                    logger.error(f"Échec de l'initialisation de MetaTrader5: {mt5.last_error()}")
                 else:
                     logger.info("MetaTrader 5 connecté avec succès!")
             except Exception as e:
                 logger.warning(f"Erreur d'initialisation MT5: {e}")
-        else:
-            logger.info("MetaTrader5 non disponible sur cet environnement (Linux/Cloud). Activation du secours automatique yfinance & CCXT.")
 
         # 2. Initialize Binance CCXT
         self.binance = ccxt.binance({
@@ -57,23 +61,65 @@ class DataFetcher:
 
     async def fetch_ohlcv(self, asset_key: str, period: str = "30d", interval: str = "1h") -> Optional[pd.DataFrame]:
         """
-        Fetch OHLCV dataframe from MetaTrader 5, CCXT, or Yahoo Finance with 3-min cache.
+        Fetch OHLCV dataframe directly connected to TradingView, MetaTrader 5, CCXT, or Yahoo Finance.
         """
         asset = TARGET_ASSETS.get(asset_key)
         if not asset:
             logger.error(f"Actif inconnu: {asset_key}")
             return None
 
-        # 0. In-Memory Cache (3-minute TTL to eliminate Rate Limiting)
+        # 0. In-Memory Cache (15-second TTL for live real-time updates)
         cache_key = f"{asset_key}_{interval}"
         now = time.time()
         if cache_key in self._ohlcv_cache:
             cached_time, cached_df = self._ohlcv_cache[cache_key]
-            if now - cached_time < 15:  # 15 seconds TTL for live fresh prices
+            if now - cached_time < 15:
                 return cached_df.copy()
 
+        # 1. DIRECT TRADINGVIEW SERVERS (Prix Spot en direct exacts TradingView / OANDA)
+        if TV_AVAILABLE:
+            try:
+                tv_map = {
+                    "XAU": {"symbol": "GOLD", "screener": "cfd", "exchange": "TVC"},
+                    "XAG": {"symbol": "SILVER", "screener": "cfd", "exchange": "TVC"},
+                    "BTC": {"symbol": "BTCUSDT", "screener": "crypto", "exchange": "BINANCE"},
+                    "TSLA": {"symbol": "TSLA", "screener": "america", "exchange": "NASDAQ"}
+                }
+                tv_cfg = tv_map.get(asset_key)
+                if tv_cfg:
+                    loop = asyncio.get_event_loop()
+                    handler = TA_Handler(
+                        symbol=tv_cfg["symbol"],
+                        screener=tv_cfg["screener"],
+                        exchange=tv_cfg["exchange"],
+                        interval=Interval.INTERVAL_1_HOUR
+                    )
+                    analysis = await loop.run_in_executor(None, handler.get_analysis)
+                    tv_price = float(analysis.indicators.get("close", 0.0))
+
+                    if tv_price > 0:
+                        df = await self._fetch_background_history(asset_key, period, interval)
+                        if df is not None and not df.empty:
+                            df.iloc[-1, df.columns.get_loc('close')] = tv_price
+                            logger.info(f"✅ Données TradingView Direct en direct pour {asset_key} ({tv_cfg['exchange']}:{tv_cfg['symbol']}): Prix = {tv_price}")
+                            self._ohlcv_cache[cache_key] = (now, df)
+                            return df
+            except Exception as e:
+                logger.warning(f"Tentative TradingView directe échouée pour {asset_key}: {e}")
+
+        # Fallback to historical fetchers
+        df = await self._fetch_background_history(asset_key, period, interval)
+        if df is not None:
+            self._ohlcv_cache[cache_key] = (now, df)
+            return df
+        return None
+
+    async def _fetch_background_history(self, asset_key: str, period: str = "30d", interval: str = "1h") -> Optional[pd.DataFrame]:
+        """Fetch historical candles from MT5, CCXT, or yfinance."""
+        asset = TARGET_ASSETS.get(asset_key)
+
         # A. Crypto (BTC) via Binance CCXT
-        if asset.asset_type == "crypto" and asset.ccxt_symbol:
+        if asset and asset.asset_type == "crypto" and asset.ccxt_symbol:
             try:
                 timeframe_map = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
                 tf = timeframe_map.get(interval, "1h")
@@ -82,22 +128,19 @@ class DataFetcher:
                     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                     df.set_index('timestamp', inplace=True)
-                    self._ohlcv_cache[cache_key] = (now, df)
                     return df
             except Exception:
-                logger.info(f"Passage automatique sur yfinance pour {asset_key} (Environnement Cloud).")
+                pass
 
-        # B. Commodities & Stocks (XAU, XAG, TSLA) via MetaTrader 5 (si disponible) + yfinance Fallback
+        # B. Commodities & Stocks via MetaTrader 5 if available
         mt5_symbol_aliases = {
             "XAU": ["XAUUSD", "GOLD", "XAUUSD.a", "XAUUSD.m", "XAUUSD.ecn", "XAUUSD_i", "XAUUSD.r"],
             "XAG": ["XAGUSD", "SILVER", "XAGUSD.a", "XAGUSD.m"],
             "TSLA": ["TSLA"],
             "BTC": ["BTCUSD", "BTCUSDT"]
         }
-        
         possible_symbols = mt5_symbol_aliases.get(asset_key, [asset_key])
 
-        # 1. Try MT5 with Symbol Aliases if MT5 is available
         if MT5_AVAILABLE and mt5:
             try:
                 tf_map = {
@@ -119,14 +162,11 @@ class DataFetcher:
                             df['timestamp'] = pd.to_datetime(df['time'], unit='s')
                             df.set_index('timestamp', inplace=True)
                             df = df.rename(columns={'tick_volume': 'volume'})
-                            df = df[['open', 'high', 'low', 'close', 'volume']]
-                            logger.info(f"✅ Données récupérées avec succès sur MT5 pour {asset_key} (Symbole: {sym})")
-                            self._ohlcv_cache[cache_key] = (now, df)
-                            return df
+                            return df[['open', 'high', 'low', 'close', 'volume']]
             except Exception as e:
-                logger.warning(f"Erreur lors de la tentative MT5 pour {asset_key}: {e}")
+                logger.warning(f"MT5 fallback warning: {e}")
 
-        # 2. Secours Automatique Spot USD via yfinance (Prix Spot OANDA/TradingView exacts)
+        # C. Yahoo Finance Fallback
         yf_ticker_map = {
             "XAU": ["PAXG-USD", "GC=F"],
             "XAG": ["KAG-USD", "SI=F"],
@@ -140,7 +180,6 @@ class DataFetcher:
 
         for yf_symbol in yf_candidates:
             try:
-                logger.info(f"🔄 Recours yfinance pour {asset_key} (Ticker: {yf_symbol})...")
                 ticker_obj = yf.Ticker(yf_symbol)
                 df = await loop.run_in_executor(
                     None, 
@@ -155,13 +194,10 @@ class DataFetcher:
                     })
                     df = df[['open', 'high', 'low', 'close', 'volume']].dropna()
                     if not df.empty and len(df) >= 10:
-                        logger.info(f"✅ Données récupérées avec succès via yfinance pour {asset_key} ({yf_symbol})")
-                        self._ohlcv_cache[cache_key] = (now, df)
                         return df
-            except Exception as e:
-                logger.warning(f"Ticker yfinance {yf_symbol} indisponible: {e}")
+            except Exception:
+                pass
 
-        logger.error(f"❌ Échec total de la récupération des données de marché pour {asset_key}")
         return None
 
     async def fetch_rss_news(self, custom_urls: Optional[List[str]] = None) -> List[Dict[str, Any]]:
