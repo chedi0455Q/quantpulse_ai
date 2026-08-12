@@ -72,8 +72,8 @@ class DataFetcher:
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                     df.set_index('timestamp', inplace=True)
                     return df
-            except Exception as e:
-                logger.warning(f"CCXT a échoué pour {asset_key}, tentative alternative: {e}")
+            except Exception:
+                logger.info(f"Passage automatique sur yfinance pour {asset_key} (Environnement Cloud).")
 
         # B. Commodities & Stocks (XAU, XAG, TSLA) via MetaTrader 5 (si disponible) + yfinance Fallback
         mt5_symbol_aliases = {
