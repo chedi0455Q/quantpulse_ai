@@ -103,11 +103,14 @@ async def lifespan(app: FastAPI):
         try:
             await telegram_app.initialize()
             await telegram_app.start()
-            await telegram_app.updater.start_polling(allowed_updates=["message", "callback_query"])
+            try:
+                await telegram_app.bot.delete_webhook(drop_pending_updates=True)
+            except Exception:
+                pass
+            await telegram_app.updater.start_polling(allowed_updates=["message", "callback_query"], drop_pending_updates=True)
             logger.info("✅ Bot Telegram démarré et en écoute (Polling).")
         except Exception as e:
-            logger.error(f"⚠️ Impossible de se connecter aux serveurs Telegram (api.telegram.org) : {e}")
-            logger.warning("💡 Remarque : Vérifiez votre connexion Internet, votre VPN/Proxy ou le Token Telegram dans le fichier .env.")
+            logger.error(f"⚠️ Remarque connexion Telegram : {e}")
         
         # Démarrage de la boucle du scanner en tâche d'arrière-plan
         scanner_task = asyncio.create_task(start_auto_scanner())
