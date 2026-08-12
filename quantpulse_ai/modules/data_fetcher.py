@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import Dict, List, Optional, Any
 import pandas as pd
 import ccxt.async_support as ccxt
@@ -18,9 +19,11 @@ from config.settings import TARGET_ASSETS, settings
 logger = logging.getLogger(__name__)
 
 class DataFetcher:
-    """Asynchronous data fetcher using MetaTrader 5 for Spot Assets & CCXT for Crypto."""
+    """Asynchronous data fetcher using MetaTrader 5 for Spot Assets, CCXT & yfinance with 3-min cache."""
     
     def __init__(self):
+        self._ohlcv_cache: Dict[str, Any] = {}
+
         # 1. Initialize MetaTrader 5 if available (Windows OS)
         if MT5_AVAILABLE and mt5:
             try:
@@ -54,12 +57,20 @@ class DataFetcher:
 
     async def fetch_ohlcv(self, asset_key: str, period: str = "30d", interval: str = "1h") -> Optional[pd.DataFrame]:
         """
-        Fetch OHLCV dataframe from MetaTrader 5, CCXT, or Yahoo Finance.
+        Fetch OHLCV dataframe from MetaTrader 5, CCXT, or Yahoo Finance with 3-min cache.
         """
         asset = TARGET_ASSETS.get(asset_key)
         if not asset:
             logger.error(f"Actif inconnu: {asset_key}")
             return None
+
+        # 0. In-Memory Cache (3-minute TTL to eliminate Rate Limiting)
+        cache_key = f"{asset_key}_{interval}"
+        now = time.time()
+        if cache_key in self._ohlcv_cache:
+            cached_time, cached_df = self._ohlcv_cache[cache_key]
+            if now - cached_time < 180:  # 3 minutes
+                return cached_df.copy()
 
         # A. Crypto (BTC) via Binance CCXT
         if asset.asset_type == "crypto" and asset.ccxt_symbol:
@@ -71,6 +82,7 @@ class DataFetcher:
                     df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                     df.set_index('timestamp', inplace=True)
+                    self._ohlcv_cache[cache_key] = (now, df)
                     return df
             except Exception:
                 logger.info(f"Passage automatique sur yfinance pour {asset_key} (Environnement Cloud).")
@@ -109,39 +121,45 @@ class DataFetcher:
                             df = df.rename(columns={'tick_volume': 'volume'})
                             df = df[['open', 'high', 'low', 'close', 'volume']]
                             logger.info(f"✅ Données récupérées avec succès sur MT5 pour {asset_key} (Symbole: {sym})")
+                            self._ohlcv_cache[cache_key] = (now, df)
                             return df
             except Exception as e:
                 logger.warning(f"Erreur lors de la tentative MT5 pour {asset_key}: {e}")
 
-        # 2. Secours Automatique via yfinance si MT5 ne renvoie rien pour XAU / Or
+        # 2. Secours Automatique multi-tickers via yfinance
         yf_ticker_map = {
-            "XAU": "GC=F",
-            "XAG": "SI=F",
-            "BTC": "BTC-USD",
-            "TSLA": "TSLA"
+            "XAU": ["GC=F", "GLD", "IAU", "XAUUSD=X"],
+            "XAG": ["SI=F", "SLV", "XAGUSD=X"],
+            "BTC": ["BTC-USD", "BTC-USDT"],
+            "TSLA": ["TSLA"]
         }
-        yf_symbol = yf_ticker_map.get(asset_key, asset_key)
-        try:
-            logger.info(f"🔄 Tentative de récupération en secours via Yahoo Finance (yfinance) pour {asset_key} ({yf_symbol})...")
-            import yfinance as yf
-            loop = asyncio.get_event_loop()
-            df = await loop.run_in_executor(
-                None, 
-                lambda: yf.download(yf_symbol, period=period, interval=interval, progress=False)
-            )
-            if df is not None and not df.empty:
-                if isinstance(df.columns, pd.MultiIndex):
-                    df.columns = df.columns.get_level_values(0)
-                df = df.rename(columns={
-                    'Open': 'open', 'High': 'high', 'Low': 'low', 
-                    'Close': 'close', 'Adj Close': 'adj_close', 'Volume': 'volume'
-                })
-                df = df[['open', 'high', 'low', 'close', 'volume']].dropna()
-                if not df.empty:
-                    logger.info(f"✅ Données récupérées avec succès via yfinance en secours pour {asset_key} ({yf_symbol})")
-                    return df
-        except Exception as e:
-            logger.error(f"Erreur lors du secours yfinance pour {asset_key}: {e}")
+        yf_candidates = yf_ticker_map.get(asset_key, [asset_key])
+        
+        import yfinance as yf
+        loop = asyncio.get_event_loop()
+
+        for yf_symbol in yf_candidates:
+            try:
+                logger.info(f"🔄 Recours yfinance pour {asset_key} (Ticker: {yf_symbol})...")
+                ticker_obj = yf.Ticker(yf_symbol)
+                df = await loop.run_in_executor(
+                    None, 
+                    lambda s=ticker_obj: s.history(period=period, interval=interval)
+                )
+                if df is not None and not df.empty:
+                    if isinstance(df.columns, pd.MultiIndex):
+                        df.columns = df.columns.get_level_values(0)
+                    df = df.rename(columns={
+                        'Open': 'open', 'High': 'high', 'Low': 'low', 
+                        'Close': 'close', 'Adj Close': 'adj_close', 'Volume': 'volume'
+                    })
+                    df = df[['open', 'high', 'low', 'close', 'volume']].dropna()
+                    if not df.empty and len(df) >= 10:
+                        logger.info(f"✅ Données récupérées avec succès via yfinance pour {asset_key} ({yf_symbol})")
+                        self._ohlcv_cache[cache_key] = (now, df)
+                        return df
+            except Exception as e:
+                logger.warning(f"Ticker yfinance {yf_symbol} indisponible: {e}")
 
         logger.error(f"❌ Échec total de la récupération des données de marché pour {asset_key}")
         return None
