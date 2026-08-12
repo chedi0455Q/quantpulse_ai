@@ -36,6 +36,7 @@ async def start_auto_scanner():
                 
                 for asset_key in scanner_assets:
                     eval_data = await bot_instance.run_single_asset_analysis(asset_key)
+                    await asyncio.sleep(1.5)  # Pause anti rate-limit Yahoo Finance
                     if eval_data:
                         conf = eval_data.get("combined_score", 0.0)
                         action = eval_data.get("final_action", "NEUTRAL")
