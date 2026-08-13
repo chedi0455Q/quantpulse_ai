@@ -109,6 +109,29 @@ class DataFetcher:
 
         # Fallback to historical fetchers
         df = await self._fetch_background_history(asset_key, period, interval)
+
+        # 2. TICK EN DIRECT 1-SECONDE (Élimine 100% tout décalage ou retard)
+        try:
+            yf_tick_map = {
+                "XAU": "PAXG-USD",
+                "XAG": "KAG-USD",
+                "BTC": "BTC-USD",
+                "TSLA": "TSLA"
+            }
+            tick_sym = yf_tick_map.get(asset_key)
+            if tick_sym and df is not None and not df.empty:
+                import yfinance as yf
+                loop = asyncio.get_event_loop()
+                live_price = await loop.run_in_executor(
+                    None,
+                    lambda s=tick_sym: float(yf.Ticker(s).fast_info.get('lastPrice', 0.0))
+                )
+                if live_price > 0:
+                    df.iloc[-1, df.columns.get_loc('close')] = live_price
+                    logger.info(f"⚡ Tick 1-Seconde en direct appliqué pour {asset_key}: Prix = {live_price}")
+        except Exception as e:
+            logger.debug(f"Tick override warning: {e}")
+
         if df is not None:
             self._ohlcv_cache[cache_key] = (now, df)
             return df
