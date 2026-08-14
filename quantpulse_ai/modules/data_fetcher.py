@@ -73,10 +73,11 @@ class DataFetcher:
         now = time.time()
         if cache_key in self._ohlcv_cache:
             cached_time, cached_df = self._ohlcv_cache[cache_key]
-            if now - cached_time < 15:
+            if now - cached_time < 3:  # 3 seconds max TTL for ultra-low latency live ticks
                 return cached_df.copy()
 
-        # 1. DIRECT TRADINGVIEW SERVERS (Prix Spot en direct exacts TradingView / OANDA)
+        # 1. DIRECT TRADINGVIEW SERVERS (Tous les 4 actifs : XAU, XAG, BTC, TSLA)
+        tv_price = 0.0
         if TV_AVAILABLE:
             try:
                 tv_map = {
@@ -96,41 +97,16 @@ class DataFetcher:
                     )
                     analysis = await loop.run_in_executor(None, handler.get_analysis)
                     tv_price = float(analysis.indicators.get("close", 0.0))
-
-                    if tv_price > 0:
-                        df = await self._fetch_background_history(asset_key, period, interval)
-                        if df is not None and not df.empty:
-                            df.iloc[-1, df.columns.get_loc('close')] = tv_price
-                            logger.info(f"✅ Données TradingView Direct en direct pour {asset_key} ({tv_cfg['exchange']}:{tv_cfg['symbol']}): Prix = {tv_price}")
-                            self._ohlcv_cache[cache_key] = (now, df)
-                            return df
             except Exception as e:
                 logger.warning(f"Tentative TradingView directe échouée pour {asset_key}: {e}")
 
         # Fallback to historical fetchers
         df = await self._fetch_background_history(asset_key, period, interval)
 
-        # 2. TICK EN DIRECT 1-SECONDE (Élimine 100% tout décalage ou retard)
-        try:
-            yf_tick_map = {
-                "XAU": "PAXG-USD",
-                "XAG": "KAG-USD",
-                "BTC": "BTC-USD",
-                "TSLA": "TSLA"
-            }
-            tick_sym = yf_tick_map.get(asset_key)
-            if tick_sym and df is not None and not df.empty:
-                import yfinance as yf
-                loop = asyncio.get_event_loop()
-                live_price = await loop.run_in_executor(
-                    None,
-                    lambda s=tick_sym: float(yf.Ticker(s).fast_info.get('lastPrice', 0.0))
-                )
-                if live_price > 0:
-                    df.iloc[-1, df.columns.get_loc('close')] = live_price
-                    logger.info(f"⚡ Tick 1-Seconde en direct appliqué pour {asset_key}: Prix = {live_price}")
-        except Exception as e:
-            logger.debug(f"Tick override warning: {e}")
+        # Application du VRAI PRIX TRADINGVIEW EN DIRECT sur la bougie pour TOUS les actifs
+        if df is not None and not df.empty and tv_price > 0:
+            df.iloc[-1, df.columns.get_loc('close')] = tv_price
+            logger.info(f"⚡ Prix TradingView Direct en direct appliqué pour {asset_key}: Prix = {tv_price}")
 
         if df is not None:
             self._ohlcv_cache[cache_key] = (now, df)
