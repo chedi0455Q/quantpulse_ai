@@ -215,9 +215,17 @@ class MessageFormatter:
         else:
             action_str = "⚪ **NEUTRE**"
 
-        conf = eval_data.get("combined_score", 70.0)
+        conf = eval_data.get("combined_score", 75.0)
         smc_score = eval_data.get("smc_res", {}).get("score", 50.0)
         gann_score = eval_data.get("gann_res", {}).get("score", 50.0)
+
+        # Bold & Colored Score Badge
+        if conf >= 80.0:
+            score_badge = f"🔥 🟢 **{conf:.0f}% [ÉLITE / CONFLUENCE MAXIMALE 🚀]**"
+        elif conf >= 72.0:
+            score_badge = f"🟢 **{conf:.0f}% [SIGNAL CONFIRMÉ ✅]**"
+        else:
+            score_badge = f"🟡 **{conf:.0f}% [MODÉRÉ]**"
 
         price = eval_data.get("price", 0.0)
         tp1 = eval_data.get("tp1", 0.0)
@@ -227,16 +235,28 @@ class MessageFormatter:
         smc_reasons = eval_data.get("smc_res", {}).get("reasons", [])
         quick_analysis = " + ".join(smc_reasons[:2]) if smc_reasons else "Confluence multi-stratégies."
 
-        rec_lot = eval_data.get("recommended_lot", 0.11)
+        lot_2k = eval_data.get("lot_2k", 0.04)
+        lot_5k = eval_data.get("lot_5k", 0.11)
+        lot_10k = eval_data.get("lot_10k", 0.22)
+        lot_25k = eval_data.get("lot_25k", 0.55)
+        lot_50k = eval_data.get("lot_50k", 1.10)
+        lot_100k = eval_data.get("lot_100k", 2.20)
 
         return (
-            f"🚨 **SIGNAL DE DAY TRADING DÉTECTÉ (>70% CONFIANCE) : {asset_name}**\n\n"
-            f"• **Type :** {action_str}\n"
-            f"• **Prix Actuel :** `{price}`\n"
-            f"• **Taille de Lot Conseillée :** `{rec_lot} Lot` (Risque 1.5% - Objectif 15%/mois)\n"
-            f"• **Score de Confiance Hybride :** **{conf:.0f}%** (SMC: {smc_score:.0f}% | Quant: {gann_score:.0f}%)\n"
-            f"• **Niveau de Risque :** {eval_data.get('risk_level')}\n"
-            f"• **Objectifs :** TP1 : `{tp1}` | TP2 : `{tp2}`\n"
-            f"• **Stop-Loss :** `{sl}` (Calculé via ATR / Order Block)\n\n"
+            f"🚨 **SIGNAL DE DAY TRADING DÉTECTÉ : {asset_name}**\n\n"
+            f"🎯 **SCORE DE CONFIANCE HYBRIDE :** {score_badge}\n"
+            f"• **Direction :** {action_str}\n"
+            f"• **Prix d'Entrée en Direct :** `{price}`\n\n"
+            f"📍 **NIVEAUX D'EXÉCUTION (RATIO RISK/REWARD 1:3 MINIMUM) :**\n"
+            f"• **TP1 (Sécurisation 50%) :** `{tp1}` (Ratio 1:1.5)\n"
+            f"• **TP2 (Objectif Final Intraday) :** `{tp2}` (Ratio 1:3.0 Strict)\n"
+            f"• **Stop-Loss (ATR / Order Block) :** `{sl}`\n\n"
+            f"💰 **TABLEAU D'ALLOCATION DES LOTS (RISQUE D'ÉLITE 1.5%) :**\n"
+            f"• Compte 2 000 $ ➔ `{lot_2k} Lot`\n"
+            f"• Compte 5 000 $ ➔ `{lot_5k} Lot` *(Votre Compte)*\n"
+            f"• Compte 10 000 $ ➔ `{lot_10k} Lot`\n"
+            f"• Compte 25 000 $ ➔ `{lot_25k} Lot`\n"
+            f"• Compte 50 000 $ ➔ `{lot_50k} Lot`\n"
+            f"• Compte 100 000 $ ➔ `{lot_100k} Lot`\n\n"
             f"💡 **Analyse Rapide :** {quick_analysis}"
         )
