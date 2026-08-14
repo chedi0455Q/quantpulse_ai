@@ -48,8 +48,14 @@ async def start_auto_scanner():
                         
                         logger.info(f"📊 Actif: {asset_key} | Score Combiné: {conf:.1f}% | Action: {action} | HighConf: {has_high_conf}")
 
-                        # Envoi de l'alerte Telegram avec PHOTO du Graphique si score >= 70% et signal ACHAT/VENTE
-                        if (conf >= settings.CONFIDENCE_THRESHOLD or has_high_conf) and action in ["BUY", "SELL"]:
+                        # Envoi de l'alerte Telegram avec PHOTO du Graphique si score >= 75% et signal ACHAT/VENTE
+                        if (conf >= 75.0 or has_high_conf) and action in ["BUY", "SELL"]:
+                            # Verrou de Signal Intraday (Attente 4h entre chaque alerte automatique pour éviter tout spam)
+                            last_sent_time = LAST_SENT_SIGNALS.get(asset_key, 0.0)
+                            if time.time() - last_sent_time < 14400:  # 4h (14400 secondes)
+                                logger.info(f"⏳ Signal Intraday actif pour {asset_key}. Verrou 4h actif (Aucun spam de TP/SL).")
+                                continue
+
                             alert_text = MessageFormatter.format_signal_alert(eval_data)
                             keyboard = bot_instance.get_signal_keyboard(asset_key)
                             
@@ -76,6 +82,7 @@ async def start_auto_scanner():
                                         reply_markup=keyboard,
                                         parse_mode="Markdown"
                                     )
+                                    LAST_SENT_SIGNALS[asset_key] = time.time()
                                     logger.info(f"🚨 Alerte signal + Photo Graphique PNG envoyée avec succès sur Telegram pour {asset_key} ({action}) !")
                                 elif bot_instance.app and bot_instance.app.bot:
                                     await bot_instance.app.bot.send_message(
@@ -84,6 +91,7 @@ async def start_auto_scanner():
                                         reply_markup=keyboard,
                                         parse_mode="Markdown"
                                     )
+                                    LAST_SENT_SIGNALS[asset_key] = time.time()
                                     logger.info(f"🚨 Alerte signal texte envoyée avec succès pour {asset_key} ({action}) !")
                             except Exception as e:
                                 logger.error(f"❌ Échec de l'envoi de l'alerte Telegram pour {asset_key}: {e}")
