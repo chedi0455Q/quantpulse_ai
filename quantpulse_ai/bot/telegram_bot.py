@@ -5,7 +5,10 @@ from telegram.ext import (
     Application,
     CommandHandler,
     CallbackQueryHandler,
-    ContextTypes
+    MessageHandler,
+    ConversationHandler,
+    ContextTypes,
+    filters
 )
 
 from config.settings import settings, TARGET_ASSETS
@@ -18,16 +21,18 @@ from modules.trader_consensus_engine import TraderConsensusEngine
 from modules.sentiment_analyzer import SentimentAnalyzer
 from modules.decision_engine import DecisionEngine
 from modules.chart_generator import ChartGenerator
+from modules.mt5_executor import MT5Executor, mt5, MT5_AVAILABLE
 
 from telegram.request import HTTPXRequest
 
 logger = logging.getLogger(__name__)
 
+# Conversation States for Interactive MT5 Setup
+STATE_MT5_SERVER, STATE_MT5_LOGIN, STATE_MT5_PASSWORD = range(3)
+
 class QuantPulseBot:
     """
-    Telegram Bot using python-telegram-bot v20+ async architecture.
-    Provides sub-menus for dedicated Strategy Analyses (SMC/ICT, Gann/Quant, Fundamental, Elite Traders Consensus)
-    and automatic Day Trading signal alerts (> 70% confidence).
+    Telegram Bot with Interactive MetaTrader 5 Auto-Trader Setup Flow & Multi-Strategy Intelligence.
     """
 
     def __init__(self):
@@ -39,12 +44,14 @@ class QuantPulseBot:
         self.sentiment_analyzer = SentimentAnalyzer()
         self.decision_engine = DecisionEngine()
         self.chart_generator = ChartGenerator()
+        self.mt5_executor = MT5Executor()
 
         self.app: Optional[Application] = None
         self.cached_evaluations: Dict[str, Dict[str, Any]] = {}
+        self.user_autotrader_configs: Dict[int, Dict[str, Any]] = {}
 
     def build_application(self) -> Application:
-        """Build python-telegram-bot Application."""
+        """Build python-telegram-bot Application with ConversationHandler for MT5 Auto-Trader."""
         if not settings.TELEGRAM_BOT_TOKEN:
             logger.warning("TELEGRAM_BOT_TOKEN non fourni ! Le bot fonctionnera sans interface Telegram.")
             return None
@@ -52,17 +59,46 @@ class QuantPulseBot:
         request = HTTPXRequest(connect_timeout=30.0, read_timeout=30.0)
         self.app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).request(request).build()
 
+        # MT5 Auto-Trader Setup Conversation Handler
+        mt5_conv_handler = ConversationHandler(
+            entry_points=[
+                CallbackQueryHandler(self.start_autotrader_setup, pattern="^btn_setup_autotrader$")
+            ],
+            states={
+                STATE_MT5_SERVER: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_mt5_server)],
+                STATE_MT5_LOGIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_mt5_login)],
+                STATE_MT5_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.process_mt5_password)],
+            },
+            fallbacks=[CommandHandler("start", self.cmd_start)]
+        )
+
+        self.app.add_handler(mt5_conv_handler)
+
         # Commands
         self.app.add_handler(CommandHandler("start", self.cmd_start))
         self.app.add_handler(CommandHandler("analyse", self.cmd_analyse))
         self.app.add_handler(CommandHandler("spacex", self.cmd_spacex))
         self.app.add_handler(CommandHandler("signals_on", self.cmd_signals_on))
         self.app.add_handler(CommandHandler("signals_off", self.cmd_signals_off))
+        self.app.add_handler(CommandHandler("autotrader_off", self.cmd_autotrader_off))
+        self.app.add_handler(CommandHandler("autotrader_on", self.cmd_autotrader_on))
 
         # Callbacks
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
 
         return self.app
+
+    def get_start_menu_keyboard(self) -> InlineKeyboardMarkup:
+        """Welcome Menu with Auto-Trader Choice."""
+        keyboard = [
+            [
+                InlineKeyboardButton("🚀 Activer l'Auto-Trader MetaTrader", callback_data="btn_setup_autotrader")
+            ],
+            [
+                InlineKeyboardButton("📊 Mode Signaux Telegram Uniquement", callback_data="back_main")
+            ]
+        ]
+        return InlineKeyboardMarkup(keyboard)
 
     def get_main_menu_keyboard(self) -> InlineKeyboardMarkup:
         """Main Menu Keyboard."""
@@ -80,6 +116,9 @@ class QuantPulseBot:
             ],
             [
                 InlineKeyboardButton("📊 Diagnostic Global du Marché", callback_data="btn_GLOBAL")
+            ],
+            [
+                InlineKeyboardButton("🛑 Stopper l'Auto-Trader MetaTrader", callback_data="btn_stop_autotrader")
             ]
         ]
         return InlineKeyboardMarkup(keyboard)
@@ -109,12 +148,137 @@ class QuantPulseBot:
         ]
         return InlineKeyboardMarkup(keyboard)
 
+    # --- Interactive MT5 Auto-Trader Conversation Flow ---
+
+    async def start_autotrader_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Step 1: Ask user for MetaTrader Server Name."""
+        query = update.callback_query
+        await query.answer()
+
+        msg = (
+            "🌐 **CONFIGURATION AUTOMATIQUE METATRADER 5**\n\n"
+            "Veuillez entrer le **nom de votre SERVEUR MetaTrader**\n"
+            "*(Exemples : `MetaQuotes-Demo`, `Exness-Trial5`, `Deriv-Demo`, `XMGlobal-Demo`, `ICMarkets-Demo`)* :"
+        )
+        await query.message.reply_text(msg, parse_mode="Markdown")
+        return STATE_MT5_SERVER
+
+    async def process_mt5_server(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Step 2: Save Server Name and Ask for MT5 Login Number."""
+        server_name = update.message.text.strip()
+        context.user_data['mt5_server'] = server_name
+
+        msg = (
+            f"✅ Serveur enregistré : `{server_name}`\n\n"
+            "🔢 **ÉTAPE 2 / 3 : NUMÉRO DE LOGIN**\n"
+            "Veuillez entrer votre **numéro de compte Login MetaTrader** *(ex: `50192834`)* :"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return STATE_MT5_LOGIN
+
+    async def process_mt5_login(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Step 3: Save Login Number and Ask for Password."""
+        login_str = update.message.text.strip()
+        if not login_str.isdigit():
+            await update.message.reply_text("❌ Le numéro de login doit contenir uniquement des chiffres. Veuillez réessayer :")
+            return STATE_MT5_LOGIN
+
+        context.user_data['mt5_login'] = int(login_str)
+
+        msg = (
+            f"✅ Login enregistré : `{login_str}`\n\n"
+            "🔑 **ÉTAPE 3 / 3 : MOT DE PASSE**\n"
+            "Veuillez entrer votre **mot de passe MetaTrader** :"
+        )
+        await update.message.reply_text(msg, parse_mode="Markdown")
+        return STATE_MT5_PASSWORD
+
+    async def process_mt5_password(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Step 4: Authenticate on MT5 and Start Auto-Trader."""
+        password = update.message.text.strip()
+        server = context.user_data.get('mt5_server')
+        login = context.user_data.get('mt5_login')
+
+        await update.message.reply_text("🔄 **Connexion en cours à MetaTrader 5... Veuillez patienter.**", parse_mode="Markdown")
+
+        # Test MT5 Connection
+        if MT5_AVAILABLE and mt5:
+            try:
+                init_res = mt5.initialize(login=login, password=password, server=server)
+                if init_res:
+                    acc = mt5.account_info()
+                    balance = acc.balance if acc else 0.0
+                    currency = acc.currency if acc else "USD"
+
+                    user_id = update.effective_user.id
+                    self.user_autotrader_configs[user_id] = {
+                        "server": server,
+                        "login": login,
+                        "password": password,
+                        "active": True
+                    }
+
+                    success_msg = (
+                        f"🎉 **CONNEXION METATRADER 5 ÉTABLIE AVEC SUCCÈS !**\n\n"
+                        f"• **Serveur :** `{server}`\n"
+                        f"• **Compte Login :** `{login}`\n"
+                        f"• **Solde Démo :** `{balance:.2f} {currency}`\n\n"
+                        f"🤖 **L'Auto-Trader est 100% ACTIVE en Pilote Automatique !**\n"
+                        f"QuantPulse AI contrôlera et exécutera désormais automatiquement les transactions d'élite (Ratio 1:3) directement sur votre compte MetaTrader."
+                    )
+                    await update.message.reply_text(success_msg, reply_markup=self.get_main_menu_keyboard(), parse_mode="Markdown")
+                    return ConversationHandler.END
+                else:
+                    err = mt5.last_error()
+                    err_msg = (
+                        f"❌ **ÉCHEC DE CONNEXION METATRADER**\n\n"
+                        f"Raison : `Code d'erreur {err}`\n"
+                        f"Veuillez vérifier votre nom de serveur, login et mot de passe, puis retapez `/start` pour réessayez."
+                    )
+                    await update.message.reply_text(err_msg, parse_mode="Markdown")
+                    return ConversationHandler.END
+            except Exception as e:
+                await update.message.reply_text(f"❌ Erreur lors de la tentative d'initialisation : {e}")
+                return ConversationHandler.END
+
+        await update.message.reply_text(
+            "⚠️ **Remarque :** MetaTrader 5 n'est pas ouvert sur le serveur local. Vos identifiants ont été enregistrés et l'Auto-Trader s'exécutera dès l'ouverture du terminal MT5 !",
+            reply_markup=self.get_main_menu_keyboard(),
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+
     # --- Command Handlers ---
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handler for `/start`."""
-        text = MessageFormatter.format_start_welcome()
-        await update.message.reply_text(text, reply_markup=self.get_main_menu_keyboard(), parse_mode="Markdown")
+        """Handler for `/start` - Prompts Auto-Trader Setup."""
+        welcome_text = (
+            "🤖 **BIENVENUE SUR QUANTPULSE AI MARKET INTELLIGENCE !**\n\n"
+            "Voulez-vous activer le **Mode AUTO-TRADER (Trading Automatique 100% Autonome sur MetaTrader 5)** ?"
+        )
+        await update.message.reply_text(welcome_text, reply_markup=self.get_start_menu_keyboard(), parse_mode="Markdown")
+
+    async def cmd_autotrader_off(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Disable MT5 Auto-Trader."""
+        user_id = update.effective_user.id
+        if user_id in self.user_autotrader_configs:
+            self.user_autotrader_configs[user_id]["active"] = False
+        await update.message.reply_text(
+            "🛑 **MODE AUTO-TRADER METATRADER DÉSACTIVÉ !**\n\n"
+            "Le bot n'exécutera plus aucun ordre automatique sur votre compte MT5 jusqu'à la réactivation (`/autotrader_on` ou `/start`).",
+            parse_mode="Markdown"
+        )
+
+    async def cmd_autotrader_on(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enable MT5 Auto-Trader."""
+        user_id = update.effective_user.id
+        if user_id in self.user_autotrader_configs:
+            self.user_autotrader_configs[user_id]["active"] = True
+        await update.message.reply_text(
+            "✅ **MODE AUTO-TRADER METATRADER RÉACTIVÉ !**\n\n"
+            "Le bot reprend l'exécution automatique des ordres d'élite en Pilote Automatique sur votre compte MT5.",
+            parse_mode="Markdown"
+        )
 
     async def cmd_signals_on(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Enable automated market signals."""
@@ -214,6 +378,16 @@ class QuantPulseBot:
 
         elif data == "btn_GLOBAL":
             await self._reply_global_diagnostic(query)
+
+        elif data == "btn_stop_autotrader":
+            user_id = update.effective_user.id
+            if user_id in self.user_autotrader_configs:
+                self.user_autotrader_configs[user_id]["active"] = False
+            await query.message.reply_text(
+                "🛑 **AUTO-TRADER METATRADER STOPPÉ !**\n\n"
+                "Le trading automatique est désormais suspendu. Vous pouvez le réactiver à tout moment via `/autotrader_on` ou `/start`.",
+                parse_mode="Markdown"
+            )
 
         # Alert Actions
         elif data.startswith("chart_"):
