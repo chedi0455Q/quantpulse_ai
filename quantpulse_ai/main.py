@@ -93,6 +93,29 @@ async def start_auto_scanner():
                                     )
                                     LAST_SENT_SIGNALS[asset_key] = time.time()
                                     logger.info(f"🚨 Alerte signal texte envoyée avec succès pour {asset_key} ({action}) !")
+
+                                # Exécution Automatique 100% Autonome sur MetaTrader 5 (si Auto-Trader actif)
+                                try:
+                                    trade_res = bot_instance.mt5_executor.execute_auto_trade(eval_data)
+                                    if trade_res.get("success"):
+                                        exec_msg = (
+                                            f"🤖 **ORDRE AUTOMATIQUE EXÉCUTÉ SUR METATRADER 5 !**\n\n"
+                                            f"• **Ticket # :** `{trade_res['ticket']}`\n"
+                                            f"• **Symbole :** `{trade_res['symbol']}`\n"
+                                            f"• **Action :** `{trade_res['action']}`\n"
+                                            f"• **Lot :** `{trade_res['lot']}`\n"
+                                            f"• **Prix d'Entrée :** `{trade_res['price']}`\n"
+                                            f"• **Take Profit 2 (Ratio 1:3) :** `{trade_res['tp']}`\n"
+                                            f"• **Stop Loss :** `{trade_res['sl']}`"
+                                        )
+                                        if bot_instance.app and bot_instance.app.bot:
+                                            await bot_instance.app.bot.send_message(
+                                                chat_id=settings.TELEGRAM_CHAT_ID,
+                                                text=exec_msg,
+                                                parse_mode="Markdown"
+                                            )
+                                except Exception as e_trade:
+                                    logger.warning(f"Note exécution MT5: {e_trade}")
                             except Exception as e:
                                 logger.error(f"❌ Échec de l'envoi de l'alerte Telegram pour {asset_key}: {e}")
 
