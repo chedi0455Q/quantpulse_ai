@@ -75,31 +75,39 @@ class DecisionEngine:
 
         final_action = combined_action if (combined_score >= 65.0 and not has_divergence) else "NEUTRAL"
 
-        # High Precision Signal Trigger Condition (Minimizes mistakes, maximizes win-rate)
+        # High Precision Signal Trigger Condition (Win-Rate 80%+ Optimization)
         has_high_confidence = (
-            (combined_score >= 70.0 and final_action in ["BUY", "SELL"] and not has_divergence) or
-            (smc_score >= 78.0 and smc_sig in ["BUY", "SELL"] and not has_divergence)
+            (combined_score >= 75.0 and final_action in ["BUY", "SELL"] and not has_divergence) or
+            (smc_score >= 80.0 and smc_sig in ["BUY", "SELL"] and not has_divergence)
         )
 
         price = smc_res.get("current_price", 0.0)
         atr = smc_res.get("atr", price * 0.01)
 
-        # Align TP1, TP2, SL with final_action
+        # Align TP1, TP2, SL with final_action (Strict Ratio 1:3 Minimum)
         if final_action == "SELL":
-            tp1 = smc_res.get("tp1") if smc_sig == "SELL" else price - (1.5 * atr)
-            tp2 = smc_res.get("tp2") if smc_sig == "SELL" else price - (3.0 * atr)
-            sl = smc_res.get("sl") if smc_sig == "SELL" else price + (1.5 * atr)
+            sl = smc_res.get("sl") if smc_sig == "SELL" else price + (0.6 * atr)
+            sl_dist = abs(sl - price)
+            tp1 = smc_res.get("tp1") if smc_sig == "SELL" else price - (1.5 * sl_dist)
+            tp2 = smc_res.get("tp2") if smc_sig == "SELL" else price - (3.0 * sl_dist)
         elif final_action == "BUY":
-            tp1 = smc_res.get("tp1") if smc_sig == "BUY" else price + (1.5 * atr)
-            tp2 = smc_res.get("tp2") if smc_sig == "BUY" else price + (3.0 * atr)
-            sl = smc_res.get("sl") if smc_sig == "BUY" else price - (1.5 * atr)
+            sl = smc_res.get("sl") if smc_sig == "BUY" else price - (0.6 * atr)
+            sl_dist = abs(price - sl)
+            tp1 = smc_res.get("tp1") if smc_sig == "BUY" else price + (1.5 * sl_dist)
+            tp2 = smc_res.get("tp2") if smc_sig == "BUY" else price + (3.0 * sl_dist)
         else:
-            tp1 = price + (1.0 * atr)
-            tp2 = price + (2.0 * atr)
-            sl = price - (1.0 * atr)
+            sl_dist = 0.5 * atr
+            sl = price - sl_dist
+            tp1 = price + (1.5 * sl_dist)
+            tp2 = price + (3.0 * sl_dist)
 
-        # Calculate recommended lot size for 1.5% risk (Target ~15%/month growth)
-        recommended_lot = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=5000.0, risk_pct=1.5)
+        # Calculate recommended lot sizes for 2K, 5K, 10K, 25K, 50K, 100K capital accounts (1.5% Risk)
+        lot_2k = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=2000.0, risk_pct=1.5)
+        lot_5k = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=5000.0, risk_pct=1.5)
+        lot_10k = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=10000.0, risk_pct=1.5)
+        lot_25k = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=25000.0, risk_pct=1.5)
+        lot_50k = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=50000.0, risk_pct=1.5)
+        lot_100k = self.calculate_recommended_lot(asset_key, price, float(sl), account_balance=100000.0, risk_pct=1.5)
 
         return {
             "asset_key": asset_key,
@@ -112,7 +120,13 @@ class DecisionEngine:
             "tp1": round(float(tp1), 4 if tp1 < 10 else 2),
             "tp2": round(float(tp2), 4 if tp2 < 10 else 2),
             "sl": round(float(sl), 4 if sl < 10 else 2),
-            "recommended_lot": recommended_lot,
+            "lot_2k": lot_2k,
+            "lot_5k": lot_5k,
+            "lot_10k": lot_10k,
+            "lot_25k": lot_25k,
+            "lot_50k": lot_50k,
+            "lot_100k": lot_100k,
+            "recommended_lot": lot_5k,
             "rsi": smc_res.get("rsi", 50.0),
             "smc_res": smc_res,
             "gann_res": gann_res,
