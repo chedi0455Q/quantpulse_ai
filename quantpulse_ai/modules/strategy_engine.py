@@ -121,23 +121,25 @@ class StrategyEngine:
         if not reasons:
             reasons.append("Structure de marché en consolidation neutre.")
 
-        # Day Trading TP / SL calculation via ATR & Order Blocks / Key Swings
+        # Asymmetric High-Yield Day Trading TP / SL calculation (Ratio Risk/Reward 1:3 STRICT)
+        sl_dist = 0.6 * current_atr
         if signal == "BUY":
-            sl = current_price - (1.5 * current_atr)
             if order_blocks.get("bullish_ob") and order_blocks["bullish_ob"] < current_price:
-                sl = max(sl, order_blocks["bullish_ob"] - (0.2 * current_atr))
-            tp1 = current_price + (1.5 * current_atr)
-            tp2 = current_price + (3.0 * current_atr)
+                sl_dist = max(sl_dist, current_price - order_blocks["bullish_ob"] + (0.1 * current_atr))
+            sl = current_price - sl_dist
+            tp1 = current_price + (1.5 * sl_dist)  # Ratio 1:1.5
+            tp2 = current_price + (3.0 * sl_dist)  # Ratio 1:3.0 STRICT MINIMUM
         elif signal == "SELL":
-            sl = current_price + (1.5 * current_atr)
             if order_blocks.get("bearish_ob") and order_blocks["bearish_ob"] > current_price:
-                sl = min(sl, order_blocks["bearish_ob"] + (0.2 * current_atr))
-            tp1 = current_price - (1.5 * current_atr)
-            tp2 = current_price - (3.0 * current_atr)
+                sl_dist = max(sl_dist, order_blocks["bearish_ob"] - current_price + (0.1 * current_atr))
+            sl = current_price + sl_dist
+            tp1 = current_price - (1.5 * sl_dist)  # Ratio 1:1.5
+            tp2 = current_price - (3.0 * sl_dist)  # Ratio 1:3.0 STRICT MINIMUM
         else:
-            sl = current_price - (1.0 * current_atr)
-            tp1 = current_price + (1.0 * current_atr)
-            tp2 = current_price + (2.0 * current_atr)
+            sl_dist = 0.5 * current_atr
+            sl = current_price - sl_dist
+            tp1 = current_price + (1.5 * sl_dist)
+            tp2 = current_price + (3.0 * sl_dist)
 
         return {
             "signal": signal,
