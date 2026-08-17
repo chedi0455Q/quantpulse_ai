@@ -25,4 +25,3 @@ from telegram.request import HTTPXRequest
 logger = logging.getLogger(__name__)
 # Conversation States for Interactive MT5 Setup
 STATE_MT5_SERVER, STATE_MT5_LOGIN, STATE_MT5_PASSWORD = range(3)
-class QuantPulseBot:
