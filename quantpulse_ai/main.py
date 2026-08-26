@@ -210,7 +210,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {
         "status": "online",
@@ -220,7 +220,7 @@ def read_root():
         "auto_signals_enabled": settings.AUTO_SIGNALS_ENABLED
     }
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "healthy"}
 
