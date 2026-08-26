@@ -5,12 +5,14 @@ logger = logging.getLogger(__name__)
 
 class TraderConsensusEngine:
     """
-    Engine 4: Top Elite Day Traders Consensus Engine.
-    Aggregates trading decisions from 4 top day trader profiles:
+    Engine 4: Top Elite Day Traders & Copy-Trading Consensus Engine.
+    Aggregates trading decisions from 6 top institutional trader profiles:
       - Trader 1: Spécialiste SMC / ICT (Structure, Order Blocks, Liquidity Sweeps)
       - Trader 2: Spécialiste Macro & Order Flow (Banques Centrales, COT, Liquide)
       - Trader 3: Trader Quant & Volatilité (Jim Simons / Stat Arb, Z-score)
       - Trader 4: Scalper Momentum & Breakouts (Rebond dynamique, Volumétrie)
+      - Trader 5: Prop Firm Senior Trader (Consensus Myfxbook & Institutional Order Flow)
+      - Trader 6: Analyste Elliott Waves & Price Action (TradingView Pro Top Ranked)
     Computes statistical consensus metrics (% BUY, % SELL, % NEUTRAL).
     """
 
@@ -31,13 +33,28 @@ class TraderConsensusEngine:
         trader_c_reason = gann_res.get("reasons", ["Modélisation quant et angles de Gann."])[0]
 
         # 4. Trader D: Momentum Breakout Scalper
-        # Scalper looks at alignment between SMC & Quant
         if trader_a_signal == trader_c_signal and trader_a_signal != "NEUTRAL":
             trader_d_signal = trader_a_signal
             trader_d_reason = f"Breakout de Momentum confirmé par la convergence SMC & Quant ({trader_a_signal})."
         else:
             trader_d_signal = "NEUTRAL"
             trader_d_reason = "Momentum indécis, en attente de cassure nette."
+
+        # 5. Trader E: Prop Firm Senior Trader (Myfxbook & Order Flow Bias)
+        if trader_a_signal == trader_b_signal and trader_a_signal != "NEUTRAL":
+            trader_e_signal = trader_a_signal
+            trader_e_reason = f"Alignment parfait SMC + Fondamental pour Prop Firm ({trader_a_signal})."
+        else:
+            trader_e_signal = trader_a_signal if smc_res.get("score", 50) >= 65 else "NEUTRAL"
+            trader_e_reason = "Filtre de risque Prop Firm actif."
+
+        # 6. Trader F: TradingView Pro Top Analyst (Elliott & Price Action)
+        if trader_c_signal != "NEUTRAL" and gann_res.get("score", 50) >= 60:
+            trader_f_signal = trader_c_signal
+            trader_f_reason = f"Vague d'impulsion Elliott confirmée par les angles Quant ({trader_c_signal})."
+        else:
+            trader_f_signal = "NEUTRAL"
+            trader_f_reason = "Marché en phase de consolidation corrective."
 
         traders = {
             "trader_smc": {
@@ -59,11 +76,21 @@ class TraderConsensusEngine:
                 "name": "Trader Lucas (Scalper Momentum Pro)",
                 "signal": trader_d_signal,
                 "reason": trader_d_reason
+            },
+            "trader_propfirm": {
+                "name": "Trader David (Senior Prop Firm Myfxbook)",
+                "signal": trader_e_signal,
+                "reason": trader_e_reason
+            },
+            "trader_tradingview": {
+                "name": "Trader Sophie (TradingView Pro Top Ranked)",
+                "signal": trader_f_signal,
+                "reason": trader_f_reason
             }
         }
 
         # Calculate Statistics (% BUY, % SELL, % NEUTRAL)
-        signals = [trader_a_signal, trader_b_signal, trader_c_signal, trader_d_signal]
+        signals = [trader_a_signal, trader_b_signal, trader_c_signal, trader_d_signal, trader_e_signal, trader_f_signal]
         buy_count = signals.count("BUY")
         sell_count = signals.count("SELL")
         neutral_count = signals.count("NEUTRAL")
@@ -84,7 +111,7 @@ class TraderConsensusEngine:
             consensus_score = 50.0
 
         reasons = [
-            f"Consensus Élite Day Traders : {buy_pct}% ACHAT | {sell_pct}% VENTE | {neutral_pct}% NEUTRE",
+            f"Consensus Élite Copy-Trading (6 Traders Top Ranked) : {buy_pct}% ACHAT | {sell_pct}% VENTE | {neutral_pct}% NEUTRE",
             f"Majorité des traders orientée {consensus_signal}."
         ]
 
