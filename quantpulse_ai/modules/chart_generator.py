@@ -69,7 +69,7 @@ class ChartGenerator:
             ax1.axhline(sl, color='#ff1744', linestyle='-', linewidth=1.5, label=f"SL: {sl:.2f}")
 
             # Prominent Signal Badge (LONG vs SHORT)
-            sig_badge = "🟢 LONG (ACHAT)" if signal_type == "BUY" else "🔴 SHORT (VENTE)" if signal_type == "SELL" else "⚪ NEUTRE"
+            sig_badge = "[LONG / ACHAT]" if signal_type == "BUY" else "[SHORT / VENTE]" if signal_type == "SELL" else "[NEUTRE]"
             badge_color = "#00c853" if signal_type == "BUY" else "#ff5252" if signal_type == "SELL" else "#757575"
             ax1.text(
                 0.98, 0.93, 
