@@ -62,7 +62,7 @@ async def start_auto_scanner():
                         continue
 
                     eval_data = await bot_instance.run_single_asset_analysis(asset_key)
-                    await asyncio.sleep(1.5)  # Pause anti rate-limit
+                    await asyncio.sleep(3.0)  # Pause 3.0s pour éviter tout rate-limit 429 sur Render
 
                     if eval_data:
                         conf = eval_data.get("combined_score", 0.0)
