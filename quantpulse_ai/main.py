@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import sys
+import time
+from typing import Dict
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
@@ -15,6 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("QuantPulseAI")
 bot_instance = QuantPulseBot()
+LAST_SENT_SIGNALS: Dict[str, float] = {}
 async def start_auto_scanner():
     """
     Boucle asynchrone de scan automatique du marché en arrière-plan.
@@ -24,3 +27,13 @@ async def start_auto_scanner():
     logger.info(f"🚀 Démarrage du Scanner Automatique QuantPulse AI (Intervalle: {settings.SCAN_INTERVAL_SECONDS}s, Seuil: {settings.CONFIDENCE_THRESHOLD}%)...")
     await asyncio.sleep(5)  # Attente initiale de démarrage
     while True:
+        try:
+            if settings.AUTO_SIGNALS_ENABLED and settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
+                logger.info("🔍 Scan du marché en cours pour la détection de signaux...")
+                scanner_assets = [k for k in TARGET_ASSETS.keys() if k != "SPACEX"]
+                
+                for asset_key in scanner_assets:
+                    if not bot_instance.decision_engine.is_market_open(asset_key):
+                        logger.info(f"ℹ️ Marché {asset_key} fermé actuellement (Hors heures officielles de bourse). Scan automatique ignoré.")
+                        continue
+                    eval_data = await bot_instance.run_single_asset_analysis(asset_key)
