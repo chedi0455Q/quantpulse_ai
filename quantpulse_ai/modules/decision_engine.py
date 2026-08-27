@@ -82,6 +82,15 @@ class DecisionEngine:
         )
 
         price = smc_res.get("current_price", 0.0)
+        
+        # Sanity Bounds Check (Reject corrupted data inputs, e.g. Silver $51.6 or $94.89)
+        if asset_key == "XAG" and (price < 15.0 or price > 75.0):
+            logger.warning(f"⚠️ Prix anormal rejeté pour XAGUSD ({price}). Doit être entre $15.00 et $75.00.")
+            return None
+        if asset_key == "XAU" and (price < 1000.0 or price > 7000.0):
+            logger.warning(f"⚠️ Prix anormal rejeté pour XAUUSD ({price}). Doit être entre $1000.00 et $7000.00.")
+            return None
+
         atr = smc_res.get("atr", price * 0.01)
 
         # Align TP1, TP2, SL with final_action (Strict Ratio 1:3 Minimum)
