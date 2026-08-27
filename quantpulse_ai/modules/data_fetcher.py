@@ -167,8 +167,8 @@ class DataFetcher:
 
         # C. Yahoo Finance Fallback
         yf_ticker_map = {
-            "XAU": ["PAXG-USD", "GC=F"],
-            "XAG": ["KAG-USD", "SI=F"],
+            "XAU": ["GC=F", "XAUUSD=X"],
+            "XAG": ["SI=F", "XAGUSD=X"],
             "BTC": ["BTC-USD", "BTC-USDT"],
             "TSLA": ["TSLA"]
         }
