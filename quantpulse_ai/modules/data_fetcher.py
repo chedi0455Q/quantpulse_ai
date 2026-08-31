@@ -81,8 +81,8 @@ class DataFetcher:
         if TV_AVAILABLE:
             try:
                 tv_map = {
-                    "XAU": {"symbol": "GOLD", "screener": "cfd", "exchange": "TVC"},
-                    "XAG": {"symbol": "SILVER", "screener": "cfd", "exchange": "TVC"},
+                    "XAU": {"symbol": "XAUUSD", "screener": "cfd", "exchange": "FOREXCOM"},
+                    "XAG": {"symbol": "XAGUSD", "screener": "cfd", "exchange": "FOREXCOM"},
                     "BTC": {"symbol": "BTCUSDT", "screener": "crypto", "exchange": "BINANCE"},
                     "TSLA": {"symbol": "TSLA", "screener": "america", "exchange": "NASDAQ"}
                 }
@@ -93,7 +93,7 @@ class DataFetcher:
                         symbol=tv_cfg["symbol"],
                         screener=tv_cfg["screener"],
                         exchange=tv_cfg["exchange"],
-                        interval=Interval.INTERVAL_1_HOUR
+                        interval=Interval.INTERVAL_1_MINUTE
                     )
                     analysis = await loop.run_in_executor(None, handler.get_analysis)
                     tv_price = float(analysis.indicators.get("close", 0.0))
