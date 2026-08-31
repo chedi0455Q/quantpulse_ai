@@ -232,6 +232,20 @@ class MessageFormatter:
         tp2 = eval_data.get("tp2", 0.0)
         sl = eval_data.get("sl", 0.0)
 
+        # Dynamic Order Type Classification (BUY MARKET / BUY LIMIT / SELL MARKET / SELL LIMIT)
+        if action == "BUY":
+            if tp1 > price and sl < price:
+                order_type_badge = "🟢 **BUY MARKET / ACHAT IMMÉDIAT (Au Prix du Marché)**"
+            else:
+                order_type_badge = "🔵 **BUY LIMIT (Ordre Limite d'Achat)** — *En attente du retracement FVG/Order Block*"
+        elif action == "SELL":
+            if tp1 < price and sl > price:
+                order_type_badge = "🔴 **SELL MARKET / VENTE IMMÉDIATE (Au Prix du Marché)**"
+            else:
+                order_type_badge = "🔴 **SELL LIMIT (Ordre Limite de Vente)** — *En attente de la hausse vers le bloc vendeur*"
+        else:
+            order_type_badge = "⚪ **NEUTRE**"
+
         smc_reasons = eval_data.get("smc_res", {}).get("reasons", [])
         quick_analysis = " + ".join(smc_reasons[:2]) if smc_reasons else "Confluence multi-stratégies."
 
@@ -246,6 +260,7 @@ class MessageFormatter:
             f"🚨 **SIGNAL DE DAY TRADING DÉTECTÉ : {asset_name}**\n\n"
             f"🎯 **SCORE DE CONFIANCE HYBRIDE :** {score_badge}\n"
             f"• **Direction :** {action_str}\n"
+            f"• **Type d'Ordre :** {order_type_badge}\n"
             f"• **Prix d'Entrée en Direct :** `{price}`\n\n"
             f"📍 **NIVEAUX D'EXÉCUTION (RATIO RISK/REWARD 1:3 MINIMUM) :**\n"
             f"• **TP1 (Sécurisation 50%) :** `{tp1}` (Ratio 1:1.5)\n"
