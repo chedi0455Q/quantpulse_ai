@@ -100,13 +100,36 @@ class DataFetcher:
             except Exception as e:
                 logger.warning(f"Tentative TradingView directe échouée pour {asset_key}: {e}")
 
+        # 2. Backup Live Tick (MT5 or CCXT or yfinance fast_info)
+        if tv_price == 0.0:
+            if asset_key == "BTC":
+                try:
+                    ticker = await self.binance.fetch_ticker('BTC/USDT')
+                    if ticker and ticker.get('last'):
+                        tv_price = float(ticker['last'])
+                except Exception:
+                    pass
+            elif MT5_AVAILABLE and mt5:
+                try:
+                    sym_aliases = {"XAU": "XAUUSD", "XAG": "XAGUSD", "TSLA": "TSLA"}
+                    tick_info = mt5.symbol_info_tick(sym_aliases.get(asset_key, asset_key))
+                    if tick_info and tick_info.bid > 0:
+                        tv_price = float(tick_info.bid)
+                except Exception:
+                    pass
+
         # Fallback to historical fetchers
         df = await self._fetch_background_history(asset_key, period, interval)
 
-        # Application du VRAI PRIX TRADINGVIEW EN DIRECT sur la bougie pour TOUS les actifs
-        if df is not None and not df.empty and tv_price > 0:
-            df.iloc[-1, df.columns.get_loc('close')] = tv_price
-            logger.info(f"⚡ Prix TradingView Direct en direct appliqué pour {asset_key}: Prix = {tv_price}")
+        # Application du VRAI PRIX EN DIRECT sur la dernière bougie pour TOUS les actifs
+        if df is not None and not df.empty:
+            if tv_price > 0:
+                df.iloc[-1, df.columns.get_loc('close')] = tv_price
+                logger.info(f"⚡ Prix Direct en temps réel appliqué pour {asset_key}: Prix = {tv_price}")
+            else:
+                # Si aucun prix direct n'a pu être vérifié, abandonner pour éviter toute fausse alerte sur prix périmé
+                logger.warning(f"⚠️ Aucun prix en direct vérifiable pour {asset_key}. Scan ignoré pour éviter tout signal sur prix périmé.")
+                return None
 
         if df is not None:
             self._ohlcv_cache[cache_key] = (now, df)
