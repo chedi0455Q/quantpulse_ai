@@ -353,6 +353,8 @@ class QuantPulseBot:
             if eval_data:
                 text = MessageFormatter.format_smc_ict_analysis(eval_data)
                 await query.message.reply_text(text, reply_markup=self.get_signal_keyboard(asset_key), parse_mode="Markdown")
+            else:
+                await query.message.reply_text(f"⚠️ Analyse de **{asset_key}** en cours de synchronisation... Veuillez cliquer à nouveau dans 3 secondes.", parse_mode="Markdown")
 
         elif data.startswith("gann_"):
             asset_key = data.split("_")[1]
@@ -360,6 +362,8 @@ class QuantPulseBot:
             if eval_data:
                 text = MessageFormatter.format_gann_quant_analysis(eval_data)
                 await query.message.reply_text(text, reply_markup=self.get_signal_keyboard(asset_key), parse_mode="Markdown")
+            else:
+                await query.message.reply_text(f"⚠️ Analyse de **{asset_key}** en cours de synchronisation... Veuillez cliquer à nouveau dans 3 secondes.", parse_mode="Markdown")
 
         elif data.startswith("fund_"):
             asset_key = data.split("_")[1]
@@ -367,6 +371,8 @@ class QuantPulseBot:
             if eval_data:
                 text = MessageFormatter.format_fundamental_analysis(eval_data)
                 await query.message.reply_text(text, reply_markup=self.get_signal_keyboard(asset_key), parse_mode="Markdown")
+            else:
+                await query.message.reply_text(f"⚠️ Analyse de **{asset_key}** en cours de synchronisation... Veuillez cliquer à nouveau dans 3 secondes.", parse_mode="Markdown")
 
         elif data.startswith("traders_"):
             asset_key = data.split("_")[1]
@@ -374,6 +380,8 @@ class QuantPulseBot:
             if eval_data:
                 text = MessageFormatter.format_trader_consensus_analysis(eval_data)
                 await query.message.reply_text(text, reply_markup=self.get_signal_keyboard(asset_key), parse_mode="Markdown")
+            else:
+                await query.message.reply_text(f"⚠️ Analyse de **{asset_key}** en cours de synchronisation... Veuillez cliquer à nouveau dans 3 secondes.", parse_mode="Markdown")
 
         elif data.startswith("combined_"):
             asset_key = data.split("_")[1]
@@ -381,6 +389,8 @@ class QuantPulseBot:
             if eval_data:
                 text = MessageFormatter.format_multi_strategy_diagnostic(eval_data)
                 await query.message.reply_text(text, reply_markup=self.get_signal_keyboard(asset_key), parse_mode="Markdown")
+            else:
+                await query.message.reply_text(f"⚠️ Analyse de **{asset_key}** en cours de synchronisation... Veuillez cliquer à nouveau dans 3 secondes.", parse_mode="Markdown")
 
         elif data == "btn_SPACEX":
             news = await self.data_fetcher.fetch_rss_news()
