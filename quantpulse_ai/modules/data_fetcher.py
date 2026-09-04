@@ -79,16 +79,29 @@ class DataFetcher:
         # 1. DIRECT TRADINGVIEW SERVERS (Tous les 4 actifs : XAU, XAG, BTC, TSLA)
         tv_price = 0.0
         if TV_AVAILABLE:
-            try:
-                tv_map = {
-                    "XAU": {"symbol": "XAUUSD", "screener": "cfd", "exchange": "FOREXCOM"},
-                    "XAG": {"symbol": "XAGUSD", "screener": "cfd", "exchange": "FOREXCOM"},
-                    "BTC": {"symbol": "BTCUSDT", "screener": "crypto", "exchange": "BINANCE"},
-                    "TSLA": {"symbol": "TSLA", "screener": "america", "exchange": "NASDAQ"}
-                }
-                tv_cfg = tv_map.get(asset_key)
-                if tv_cfg:
-                    loop = asyncio.get_event_loop()
+            tv_candidates = {
+                "XAU": [
+                    {"symbol": "XAUUSD", "screener": "cfd", "exchange": "FOREXCOM"},
+                    {"symbol": "XAUUSD", "screener": "cfd", "exchange": "OANDA"},
+                    {"symbol": "GOLD", "screener": "cfd", "exchange": "TVC"}
+                ],
+                "XAG": [
+                    {"symbol": "XAGUSD", "screener": "cfd", "exchange": "FOREXCOM"},
+                    {"symbol": "XAGUSD", "screener": "cfd", "exchange": "OANDA"},
+                    {"symbol": "SILVER", "screener": "cfd", "exchange": "TVC"}
+                ],
+                "BTC": [
+                    {"symbol": "BTCUSDT", "screener": "crypto", "exchange": "BINANCE"},
+                    {"symbol": "BTCUSD", "screener": "crypto", "exchange": "COINBASE"}
+                ],
+                "TSLA": [
+                    {"symbol": "TSLA", "screener": "america", "exchange": "NASDAQ"}
+                ]
+            }
+            candidates = tv_candidates.get(asset_key, [])
+            loop = asyncio.get_event_loop()
+            for tv_cfg in candidates:
+                try:
                     handler = TA_Handler(
                         symbol=tv_cfg["symbol"],
                         screener=tv_cfg["screener"],
@@ -96,11 +109,14 @@ class DataFetcher:
                         interval=Interval.INTERVAL_1_MINUTE
                     )
                     analysis = await loop.run_in_executor(None, handler.get_analysis)
-                    tv_price = float(analysis.indicators.get("close", 0.0))
-            except Exception as e:
-                logger.warning(f"Tentative TradingView directe échouée pour {asset_key}: {e}")
+                    c_price = float(analysis.indicators.get("close", 0.0))
+                    if c_price > 0:
+                        tv_price = c_price
+                        break
+                except Exception:
+                    pass
 
-        # 2. Backup Live Tick (MT5 or CCXT or yfinance fast_info)
+        # 2. Backup Live Tick (yfinance fast_info, MT5, or CCXT)
         if tv_price == 0.0:
             if asset_key == "BTC":
                 try:
@@ -118,6 +134,18 @@ class DataFetcher:
                 except Exception:
                     pass
 
+            if tv_price == 0.0:
+                try:
+                    import yfinance as yf
+                    yf_sym = "GC=F" if asset_key == "XAU" else "SI=F" if asset_key == "XAG" else "BTC-USD" if asset_key == "BTC" else "TSLA"
+                    ticker_obj = yf.Ticker(yf_sym)
+                    loop = asyncio.get_event_loop()
+                    fast_p = await loop.run_in_executor(None, lambda s=ticker_obj: getattr(s.fast_info, 'last_price', 0.0))
+                    if fast_p and float(fast_p) > 0:
+                        tv_price = float(fast_p)
+                except Exception:
+                    pass
+
         # Fallback to historical fetchers
         df = await self._fetch_background_history(asset_key, period, interval)
 
@@ -127,9 +155,8 @@ class DataFetcher:
                 df.iloc[-1, df.columns.get_loc('close')] = tv_price
                 logger.info(f"⚡ Prix Direct en temps réel appliqué pour {asset_key}: Prix = {tv_price}")
             else:
-                # Si aucun prix direct n'a pu être vérifié, abandonner pour éviter toute fausse alerte sur prix périmé
-                logger.warning(f"⚠️ Aucun prix en direct vérifiable pour {asset_key}. Scan ignoré pour éviter tout signal sur prix périmé.")
-                return None
+                tv_price = float(df.iloc[-1]['close'])
+                logger.info(f"⚡ Prix Historique de secours appliqué pour {asset_key}: Prix = {tv_price}")
 
         if df is not None:
             self._ohlcv_cache[cache_key] = (now, df)
